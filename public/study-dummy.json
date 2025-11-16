@@ -1,0 +1,43 @@
+[
+  {
+    "name": "John Doe",
+    "grade": "A",
+    "major": "Computer Science",
+    "satuan": "jam",
+    "frekuensi": 20,
+    "jumlah": 500000
+  },
+  {
+    "name": "Jane Smith",
+    "grade": "B",
+    "major": "Mathematics",
+    "satuan": "jam",
+    "frekuensi": 18,
+    "jumlah": 450000
+  },
+  {
+    "name": "Bob Johnson",
+    "grade": "A",
+    "major": "Physics",
+    "satuan": "jam",
+    "frekuensi": 22,
+    "jumlah": 550000
+  },
+  {
+    "name": "Alice Williams",
+    "grade": "B+",
+    "major": "Computer Science",
+    "satuan": "jam",
+    "frekuensi": 19,
+    "jumlah": 475000
+  },
+  {
+    "name": "Charlie Brown",
+    "grade": "A-",
+    "major": "Mathematics",
+    "satuan": "jam",
+    "frekuensi": 21,
+    "jumlah": 525000
+  }
+]
+
