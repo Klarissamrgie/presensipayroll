@@ -1,0 +1,94 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.tbKegiatan (
+  id_kegiatan bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  nama_kegiatan character varying NOT NULL,
+  tgl_kegiatan date,
+  jam_kegiatan time without time zone,
+  lokasi_kegiatan character varying,
+  hrg_kegiatan bigint,
+  id_teacher uuid,
+  id_student bigint,
+  id_kelas bigint,
+  CONSTRAINT tbKegiatan_pkey PRIMARY KEY (id_kegiatan),
+  CONSTRAINT tbKegiatan_id_teacher_fkey FOREIGN KEY (id_teacher) REFERENCES public.tbTeacher(id_teacher),
+  CONSTRAINT tbKegiatan_id_student_fkey FOREIGN KEY (id_student) REFERENCES public.tbStudents(id_student),
+  CONSTRAINT tbKegiatan_id_kelas_fkey FOREIGN KEY (id_kelas) REFERENCES public.tbKelas(id_kelas)
+);
+CREATE TABLE public.tbKelas (
+  id_kelas bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  name_kelas text,
+  id_grade bigint,
+  CONSTRAINT tbKelas_pkey PRIMARY KEY (id_kelas),
+  CONSTRAINT tbKelas_id_grade_fkey FOREIGN KEY (id_grade) REFERENCES public.tbgrade(id_grade)
+);
+CREATE TABLE public.tbPayroll (
+  id_payroll bigint GENERATED ALWAYS AS IDENTITY NOT NULL UNIQUE,
+  id_student bigint,
+  id_kegiatan bigint,
+  id_grade bigint,
+  tanggal_payroll date,
+  total_payroll bigint,
+  pph21_payroll bigint,
+  id_teacher uuid,
+  CONSTRAINT tbPayroll_pkey PRIMARY KEY (id_payroll),
+  CONSTRAINT tbPayroll_id_student_fkey FOREIGN KEY (id_student) REFERENCES public.tbStudents(id_student),
+  CONSTRAINT tbPayroll_id_kegiatan_fkey FOREIGN KEY (id_kegiatan) REFERENCES public.tbKegiatan(id_kegiatan),
+  CONSTRAINT tbPayroll_id_grade_fkey FOREIGN KEY (id_grade) REFERENCES public.tbgrade(id_grade),
+  CONSTRAINT tbPayroll_id_teacher_fkey FOREIGN KEY (id_teacher) REFERENCES public.tbTeacher(id_teacher)
+);
+CREATE TABLE public.tbPresensi (
+  id_presensi bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_kegiatan bigint,
+  id_student bigint,
+  tanggal_presensi date,
+  jam_presensi time without time zone,
+  id_teacher uuid,
+  id_jenis_presensi bigint,
+  image_kehadiran character varying,
+  CONSTRAINT tbPresensi_pkey PRIMARY KEY (id_presensi),
+  CONSTRAINT tbPresensi_id_teacher_fkey FOREIGN KEY (id_teacher) REFERENCES auth.users(id),
+  CONSTRAINT tbPresensi_id_teacher_fkey1 FOREIGN KEY (id_teacher) REFERENCES public.tbTeacher(id_teacher),
+  CONSTRAINT tbPresensi_id_student_fkey FOREIGN KEY (id_student) REFERENCES public.tbStudents(id_student),
+  CONSTRAINT tbPresensi_id_kegiatan_fkey FOREIGN KEY (id_kegiatan) REFERENCES public.tbKegiatan(id_kegiatan),
+  CONSTRAINT tbPresensi_id_jenis_presensi_fkey FOREIGN KEY (id_jenis_presensi) REFERENCES public.tbTipePresensi(id_tipe_presensi)
+);
+CREATE TABLE public.tbStudents (
+  id_student bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  name_student character varying NOT NULL,
+  gender_student character varying,
+  id_kelas bigint,
+  datebirth_student date,
+  joindate_student date,
+  id_grade bigint NOT NULL UNIQUE,
+  CONSTRAINT tbStudents_pkey PRIMARY KEY (id_student),
+  CONSTRAINT tbStudents_id_kelas_fkey FOREIGN KEY (id_kelas) REFERENCES public.tbKelas(id_kelas),
+  CONSTRAINT tbStudents_id_grade_fkey FOREIGN KEY (id_grade) REFERENCES public.tbgrade(id_grade)
+);
+CREATE TABLE public.tbTeacher (
+  id_teacher uuid NOT NULL,
+  nama text DEFAULT ''::text,
+  gender text DEFAULT ''::text,
+  id_kelas character varying,
+  tgl_lahir date,
+  join_date date,
+  npwp character varying,
+  nama_bank text,
+  nomor_rekening text,
+  email character varying,
+  CONSTRAINT tbTeacher_pkey PRIMARY KEY (id_teacher),
+  CONSTRAINT tbTeacher_id_teacher_fkey FOREIGN KEY (id_teacher) REFERENCES auth.users(id)
+);
+CREATE TABLE public.tbTipePresensi (
+  id_tipe_presensi bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  nama text,
+  CONSTRAINT tbTipePresensi_pkey PRIMARY KEY (id_tipe_presensi)
+);
+CREATE TABLE public.tbgrade (
+  id_grade bigint GENERATED ALWAYS AS IDENTITY NOT NULL UNIQUE,
+  name_grade character varying NOT NULL,
+  harga_grade character varying,
+  CONSTRAINT tbgrade_pkey PRIMARY KEY (id_grade),
+  CONSTRAINT tbgrade_id_grade_fkey FOREIGN KEY (id_grade) REFERENCES public.tbgrade(id_grade)
+);

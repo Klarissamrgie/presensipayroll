@@ -40,42 +40,42 @@ const Student = async () => {
 
       {/* Cards */}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card>
+        <Card className="bg-red-500 text-white">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Students</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
+            <Users className="h-4 w-4 text-white" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalStudents}</div>
-            <p className="text-xs text-muted-foreground">Active students</p>
+            <div className="text-2xl font-bold text-white">{totalStudents}</div>
+            <p className="text-xs text-muted-foreground text-white">Active students</p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className='bg-[#8C84D9] text-white'>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Work Hours</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
+            <Clock className="h-4 w-4 text-white" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalWorkHours}</div>
-            <p className="text-xs text-muted-foreground">Total hours</p>
+            <div className="text-2xl font-bold text-white">{totalWorkHours}</div>
+            <p className="text-xs text-muted-foreground text-white">Total hours</p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className='bg-[#1D94AC] text-white'>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Salary</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
+            <DollarSign className="h-4 w-4 text-white" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="text-2xl font-bold text-white">
               {new Intl.NumberFormat('id-ID', {
                 style: 'currency',
                 currency: 'IDR',
                 minimumFractionDigits: 0
               }).format(totalSalary)}
             </div>
-            <p className="text-xs text-muted-foreground">Total salary</p>
+            <p className="text-xs text-muted-foreground text-white">Total salary</p>
           </CardContent>
         </Card>
       </div>
