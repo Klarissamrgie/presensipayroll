@@ -13,7 +13,13 @@ import {
   UserCircle,
   ClipboardList,
   BookOpen,
+  User,
+  School,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 interface MenuItem {
   title: string;
@@ -24,14 +30,24 @@ interface MenuItem {
 const roleMenus: Record<string, MenuItem[]> = {
   admin: [
     {
-      title: "Kelola User",
+      title: "Kelola Teacher",
       href: "/protected/admin/kelola-teacher",
       icon: Users,
+    },
+    {
+      title: "Kelola Student",
+      href: "/protected/admin/kelola-student",
+      icon: User,
     },
     {
       title: "Kelola Grade",
       href: "/protected/admin/kelola-grade",
       icon: GraduationCap,
+    },
+    {
+      title: "Kelola Kelas",
+      href: "/protected/admin/kelola-kelas",
+      icon: School,
     },
     {
       title: "Kelola Jadwal",
@@ -106,42 +122,69 @@ export function Sidebar({ userEmail }: SidebarProps) {
   const basePath = `/protected/${role}`;
 
   return (
-    <aside className="w-64 min-h-screen border-r border-border bg-background p-4 flex flex-col">
-      <div className="mb-8">
-        <Link href={basePath} className="flex items-center gap-2">
-          <h2 className="text-xl font-bold capitalize">{role} Dashboard</h2>
+    <aside className="w-64 min-h-screen border-r border-border bg-card flex flex-col">
+      <div className="p-6">
+        <Link href={basePath} className="flex items-center gap-3 transition-opacity hover:opacity-80">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
+            <LayoutDashboard className="h-5 w-5" />
+          </div>
+          <span className="text-lg font-bold tracking-tight capitalize">{role} Panel</span>
         </Link>
       </div>
-      <nav className="space-y-1 flex-1">
-        {menuItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-          
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                isActive
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              )}
-            >
-              <Icon className="h-5 w-5" />
-              <span>{item.title}</span>
-            </Link>
-          );
-        })}
-      </nav>
-      {userEmail && (
-        <div className="mt-auto pt-4 border-t border-border">
-          <p className="text-sm text-muted-foreground px-3 py-2 truncate">
-            {userEmail}
-          </p>
-        </div>
-      )}
+      
+      <ScrollArea className="flex-1 px-4">
+        <nav className="flex flex-col gap-1 py-2">
+          {menuItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+            
+            return (
+              <Button
+                key={item.href}
+                variant={isActive ? "secondary" : "ghost"}
+                className={cn(
+                  "w-full justify-start gap-3 h-10 mb-1 font-normal",
+                  isActive 
+                    ? "bg-secondary text-secondary-foreground shadow-sm font-medium" 
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                )}
+                asChild
+              >
+                <Link href={item.href}>
+                  <Icon className={cn("h-4 w-4", isActive ? "text-foreground" : "text-muted-foreground")} />
+                  {item.title}
+                </Link>
+              </Button>
+            );
+          })}
+        </nav>
+      </ScrollArea>
+
+      <div className="p-4 mt-auto">
+        <Separator className="mb-4 bg-border/50" />
+        {userEmail ? (
+          <div className="flex items-center gap-3 px-1 group cursor-default">
+            <Avatar className="h-9 w-9 border border-border transition-all group-hover:border-primary/50">
+              <AvatarImage src={`https://api.dicebear.com/7.x/initials/svg?seed=${userEmail}`} alt={userEmail} />
+              <AvatarFallback className="bg-primary/10 text-primary font-medium text-xs">
+                {userEmail.substring(0, 2).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex flex-col overflow-hidden">
+              <span className="text-sm font-medium truncate leading-none text-foreground">
+                {userEmail.split('@')[0]}
+              </span>
+              <span className="text-xs text-muted-foreground truncate mt-1">
+                {userEmail}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="px-1 py-2 text-xs text-muted-foreground text-center bg-muted/30 rounded-md">
+            Guest User
+          </div>
+        )}
+      </div>
     </aside>
   );
 }
-

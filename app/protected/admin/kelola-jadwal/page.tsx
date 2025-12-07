@@ -1,100 +1,101 @@
 import { createClient } from '@/lib/supabase/server'
-import KelolaTeacherClient, {
-  ActivityOption,
-  ClassOption,
-  GradeOption,
-  StudentOption,
-  TeacherOption,
-} from './kelola-teacher-client'
+import KelolaJadwalClient from './kelola-jadwal-client'
 
-const FALLBACK_ERROR_MESSAGE =
-  'Tidak dapat memuat data dari Supabase. Pastikan tabel sudah tersedia.'
+export const dynamic = 'force-dynamic'
 
-const KelolaJadwalPage = async () => {
+export default async function KelolaJadwalPage() {
   const supabase = await createClient()
 
-  const [teachersRes, classesRes, studentsRes, gradesRes, activitiesRes] = await Promise.all([
+  // Tambahkan query ke-4 untuk mengambil data siswa
+  const [teachersRes, classesRes, studentsRes, activitiesRes] = await Promise.all([
+    supabase.from('tbteacher').select('id_teacher, nama').order('nama'),
+    supabase.from('tbkelas').select('id_kelas, name_kelas').order('name_kelas'),
+    
+    // --- QUERY BARU: Ambil siswa & kelas yang diikuti ---
     supabase
-      .from('tbTeacher')
-      .select('id_teacher, nama')
-      .order('nama', { ascending: true }),
+      .from('tbstudents')
+      .select(`
+        id_student, 
+        name_student,
+        tb_student_classes (
+          id_kelas
+        )
+      `)
+      .order('name_student'),
+      
     supabase
-      .from('tbKelas')
-      .select('id_kelas, name_kelas, id_grade')
-      .order('name_kelas', { ascending: true }),
-    supabase
-      .from('tbStudents')
-      .select('id_student, name_student, id_kelas')
-      .order('name_student', { ascending: true }),
-    supabase
-      .from('tbgrade')
-      .select('id_grade, name_grade')
-      .order('name_grade', { ascending: true }),
-    supabase
-      .from('tbKegiatan')
-      .select(
-        'id_kegiatan, nama_kegiatan, tgl_kegiatan, jam_kegiatan, id_teacher, id_kelas, id_student',
-      )
-      .order('tgl_kegiatan', { ascending: false })
-      .limit(50),
+      .from('tbkegiatan')
+      .select(`
+        id_kegiatan,
+        nama_kegiatan,
+        tgl_kegiatan,
+        jam_mulai,
+        jam_selesai,
+        id_kelas,
+        id_student,
+        tbkelas (name_kelas),
+        tb_activity_teachers (
+          tbteacher (
+            id_teacher,
+            nama
+          )
+        )
+      `)
+      .order('tgl_kegiatan', { ascending: false }),
   ])
 
-  const teachers: TeacherOption[] =
-    teachersRes.data?.map((teacher) => ({
-      id: teacher.id_teacher,
-      nama: teacher.nama ?? 'Tanpa nama',
-    })) ?? []
+  // -- Data Mapping --
 
-  const classes: ClassOption[] =
-    classesRes.data?.map((kelas) => ({
-      id: kelas.id_kelas,
-      name: kelas.name_kelas ?? `Kelas ${kelas.id_kelas}`,
-      gradeId: kelas.id_grade ?? null,
-    })) ?? []
+  const teachers = teachersRes.data?.map((t: any) => ({ 
+    id: t.id_teacher, 
+    name: t.nama || 'Unnamed' 
+  })) || []
 
-  const students: StudentOption[] =
-    studentsRes.data?.map((student) => ({
-      id: student.id_student,
-      name: student.name_student ?? `Student ${student.id_student}`,
-      classId: student.id_kelas ?? null,
-    })) ?? []
+  const classes = classesRes.data?.map((c: any) => ({ 
+    id: c.id_kelas, 
+    name: c.name_kelas || 'Unnamed' 
+  })) || []
 
-  const grades: GradeOption[] =
-    gradesRes.data?.map((grade) => ({
-      id: grade.id_grade,
-      name: grade.name_grade ?? `Grade ${grade.id_grade}`,
-    })) ?? []
+  // --- MAPPING SISWA ---
+  // Kita perlu flatten array kelas agar mudah difilter di client
+  const students = studentsRes.data?.map((s: any) => ({
+    id: s.id_student,
+    name: s.name_student || 'Unnamed',
+    classIds: s.tb_student_classes?.map((sc: any) => sc.id_kelas) || []
+  })) || []
 
-  const activities: ActivityOption[] =
-    activitiesRes.data?.map((activity) => ({
-      id: activity.id_kegiatan,
-      namaKegiatan: activity.nama_kegiatan ?? 'Tanpa nama',
-      tanggal: activity.tgl_kegiatan ?? null,
-      jam: activity.jam_kegiatan ?? null,
-      teacherId: activity.id_teacher ?? null,
-      classId: activity.id_kelas ?? null,
-      studentId: activity.id_student ?? null,
-    })) ?? []
+  const activities = activitiesRes.data?.map((a: any) => {
+    const assignedTeachers = a.tb_activity_teachers?.map((rel: any) => ({
+      id: rel.tbteacher?.id_teacher,
+      name: rel.tbteacher?.nama
+    })) || []
 
-  const hasError = [
-    teachersRes.error,
-    classesRes.error,
-    studentsRes.error,
-    gradesRes.error,
-    activitiesRes.error,
-  ].some(Boolean)
+    return {
+      id: a.id_kegiatan,
+      title: a.nama_kegiatan,
+      date: a.tgl_kegiatan,
+      startTime: a.jam_mulai,
+      endTime: a.jam_selesai,
+      teachers: assignedTeachers, 
+      classId: a.id_kelas,
+      studentId: a.id_student,
+      className: a.tbkelas?.name_kelas,
+    }
+  }) || []
 
   return (
-    <KelolaTeacherClient
-      teachers={teachers}
-      classes={classes}
-      grades={grades}
-      students={students}
-      activities={activities}
-      errorMessage={hasError ? FALLBACK_ERROR_MESSAGE : undefined}
-    />
+    <div className="space-y-6">
+      <div>
+        <p className="text-sm uppercase tracking-wide text-muted-foreground">Admin Panel</p>
+        <h1 className="text-3xl font-semibold">Kelola Jadwal & Kegiatan</h1>
+      </div>
+
+      <KelolaJadwalClient 
+        initialTeachers={teachers}
+        initialClasses={classes}
+        initialStudents={students} // Kirim data siswa ke client
+        initialActivities={activities}
+      />
+    </div>
   )
 }
-
-export default KelolaJadwalPage
-

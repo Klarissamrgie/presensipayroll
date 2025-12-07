@@ -1,74 +1,59 @@
 import { createClient } from '@/lib/supabase/server'
-import KelolaTeacherClient, {
-  ActivityOption,
-  ClassOption,
-  StudentOption,
-  TeacherOption,
-} from './kelola-teacher-client'
+import KelolaTeacherClient from './kelola-teacher-client'
 
-const FALLBACK_ERROR_MESSAGE =
-  'Tidak dapat memuat data dari Supabase. Pastikan tabel sudah tersedia.'
+export const dynamic = 'force-dynamic'
 
-const KelolaTeacher = async () => {
+export default async function KelolaTeacherPage() {
   const supabase = await createClient()
 
-  const [teachersRes, classesRes, studentsRes, activitiesRes] = await Promise.all([
-    supabase.from('tbTeacher').select('id_teacher, nama').order('nama', { ascending: true }),
-    supabase.from('tbKelas').select('id_kelas, name_kelas').order('name_kelas', { ascending: true }),
+  // Fetch data Guru dan Kelas
+  const [teachersRes, classesRes] = await Promise.all([
     supabase
-      .from('tbStudents')
-      .select('id_student, name_student, id_kelas')
-      .order('name_student', { ascending: true }),
-    supabase
-      .from('tbKegiatan')
-      .select('id_kegiatan, nama_kegiatan, tgl_kegiatan, jam_kegiatan, id_teacher, id_kelas, id_student')
-      .order('tgl_kegiatan', { ascending: false })
-      .limit(50),
+      .from('tbteacher')
+      .select(`
+        id_teacher,
+        nama,
+        gender,
+        tgl_lahir,
+        email,
+        tb_teacher_classes (
+          tbkelas (id_kelas, name_kelas)
+        )
+      `)
+      .order('nama', { ascending: true }),
+      
+    supabase.from('tbkelas').select('id_kelas, name_kelas').order('name_kelas'),
   ])
 
-  const teachers: TeacherOption[] =
-    teachersRes.data?.map((teacher) => ({
-      id: teacher.id_teacher,
-      nama: teacher.nama ?? 'Tanpa nama',
-    })) ?? []
+  // Mapping Data Teacher
+  const teachers = teachersRes.data?.map((t: any) => ({
+    id: t.id_teacher,
+    name: t.nama || '-',
+    gender: t.gender || '-',
+    dob: t.tgl_lahir || null,
+    email: t.email || '-',
+    // Ambil ID dan Nama Kelas dari relasi
+    classIds: t.tb_teacher_classes?.map((tc: any) => tc.tbkelas?.id_kelas) || [],
+    classNames: t.tb_teacher_classes?.map((tc: any) => tc.tbkelas?.name_kelas).join(', ') || '-'
+  })) || []
 
-  const classes: ClassOption[] =
-    classesRes.data?.map((kelas) => ({
-      id: kelas.id_kelas,
-      name: kelas.name_kelas ?? `Kelas ${kelas.id_kelas}`,
-    })) ?? []
-
-  const students: StudentOption[] =
-    studentsRes.data?.map((student) => ({
-      id: student.id_student,
-      name: student.name_student ?? `Student ${student.id_student}`,
-      classId: student.id_kelas ?? null,
-    })) ?? []
-
-  const activities: ActivityOption[] =
-    activitiesRes.data?.map((activity) => ({
-      id: activity.id_kegiatan,
-      namaKegiatan: activity.nama_kegiatan ?? 'Tanpa nama',
-      tanggal: activity.tgl_kegiatan ?? null,
-      jam: activity.jam_kegiatan ?? null,
-      teacherId: activity.id_teacher ?? null,
-      classId: activity.id_kelas ?? null,
-      studentId: activity.id_student ?? null,
-    })) ?? []
-
-  const hasError = [teachersRes.error, classesRes.error, studentsRes.error, activitiesRes.error].some(
-    Boolean,
-  )
+  // Mapping Data Kelas untuk Dropdown/Select
+  const classes = classesRes.data?.map((c: any) => ({
+    id: c.id_kelas,
+    name: c.name_kelas || 'Unnamed'
+  })) || []
 
   return (
-    <KelolaTeacherClient
-      teachers={teachers}
-      classes={classes}
-      students={students}
-      activities={activities}
-      errorMessage={hasError ? FALLBACK_ERROR_MESSAGE : undefined}
-    />
+    <div className="space-y-6">
+      <div>
+        <p className="text-sm uppercase tracking-wide text-muted-foreground">Admin Panel</p>
+        <h1 className="text-3xl font-semibold">Kelola User (Teacher)</h1>
+      </div>
+
+      <KelolaTeacherClient
+        initialTeachers={teachers}
+        initialClasses={classes}
+      />
+    </div>
   )
 }
-
-export default KelolaTeacher
