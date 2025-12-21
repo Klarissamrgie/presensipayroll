@@ -6,12 +6,15 @@ export const dynamic = 'force-dynamic'
 export default async function KelolaJadwalPage() {
   const supabase = await createClient()
 
-  // Tambahkan query ke-4 untuk mengambil data siswa
+  // Ambil data secara paralel untuk performa
   const [teachersRes, classesRes, studentsRes, activitiesRes] = await Promise.all([
+    // 1. Data Guru
     supabase.from('tbteacher').select('id_teacher, nama').order('nama'),
+    
+    // 2. Data Kelas
     supabase.from('tbkelas').select('id_kelas, name_kelas').order('name_kelas'),
     
-    // --- QUERY BARU: Ambil siswa & kelas yang diikuti ---
+    // 3. Data Siswa beserta Kelas yang diikuti (untuk filter dropdown)
     supabase
       .from('tbstudents')
       .select(`
@@ -23,6 +26,7 @@ export default async function KelolaJadwalPage() {
       `)
       .order('name_student'),
       
+    // 4. Data Kegiatan/Jadwal yang sudah ada
     supabase
       .from('tbkegiatan')
       .select(`
@@ -44,7 +48,7 @@ export default async function KelolaJadwalPage() {
       .order('tgl_kegiatan', { ascending: false }),
   ])
 
-  // -- Data Mapping --
+  // --- MAPPING DATA AGAR MUDAH DIBACA CLIENT ---
 
   const teachers = teachersRes.data?.map((t: any) => ({ 
     id: t.id_teacher, 
@@ -56,14 +60,14 @@ export default async function KelolaJadwalPage() {
     name: c.name_kelas || 'Unnamed' 
   })) || []
 
-  // --- MAPPING SISWA ---
-  // Kita perlu flatten array kelas agar mudah difilter di client
+  // Mapping Siswa: Flatten array kelas agar mudah difilter
   const students = studentsRes.data?.map((s: any) => ({
     id: s.id_student,
     name: s.name_student || 'Unnamed',
     classIds: s.tb_student_classes?.map((sc: any) => sc.id_kelas) || []
   })) || []
 
+  // Mapping Kegiatan: Ambil guru dari tabel relasi
   const activities = activitiesRes.data?.map((a: any) => {
     const assignedTeachers = a.tb_activity_teachers?.map((rel: any) => ({
       id: rel.tbteacher?.id_teacher,
@@ -93,7 +97,7 @@ export default async function KelolaJadwalPage() {
       <KelolaJadwalClient 
         initialTeachers={teachers}
         initialClasses={classes}
-        initialStudents={students} // Kirim data siswa ke client
+        initialStudents={students} 
         initialActivities={activities}
       />
     </div>

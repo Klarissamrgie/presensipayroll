@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
 import { id as indonesia } from 'date-fns/locale'
 
-// --- UI Components (Shadcn) ---
+// --- UI Components ---
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -14,58 +14,25 @@ import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+  Popover, PopoverContent, PopoverTrigger,
 } from '@/components/ui/popover'
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
+  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from '@/components/ui/command'
 import { 
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 
 // --- Icons ---
 import { 
-  ChevronLeft, 
-  ChevronRight, 
-  Calendar as CalendarIcon, 
-  Plus, 
-  Users, 
-  Pencil, 
-  Trash2, 
-  Clock, 
-  Check, 
-  ChevronsUpDown, 
-  X, 
-  Loader2,
-  User
+  ChevronLeft, ChevronRight, Calendar as CalendarIcon, Plus, Users, 
+  Pencil, Trash2, Clock, Check, ChevronsUpDown, X, Loader2, User
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -89,14 +56,14 @@ type ClientActivity = {
 type Props = {
   initialTeachers: Option[]
   initialClasses: Option[]
-  initialStudents?: StudentOption[]
+  initialStudents: StudentOption[]
   initialActivities: ClientActivity[]
 }
 
 export default function KelolaJadwalClient({ 
   initialTeachers, 
   initialClasses, 
-  initialStudents = [], 
+  initialStudents, 
   initialActivities 
 }: Props) {
   const supabase = createClient()
@@ -180,20 +147,21 @@ export default function KelolaJadwalClient({
     setIsEditMode(true)
     const type = act.classId ? 'KELAS' : 'KEGIATAN'
     setFormType(type)
+    
     setFormData({
       title: act.title,
-      teacherIds: act.teachers.map(t => t.id),
+      teacherIds: act.teachers.map(t => String(t.id)),
       classId: act.classId ? String(act.classId) : '',
       studentId: act.studentId ? String(act.studentId) : '',
       date: act.date || '',
       startTime: act.startTime || '08:00',
       endTime: act.endTime || '09:00'
     })
+    
     setIsDayDetailOpen(false)
     setIsDialogOpen(true)
   }
 
-  // Multi-select toggle for Activity mode
   const toggleTeacherMulti = (teacherId: string) => {
     setFormData(prev => {
       const exists = prev.teacherIds.includes(teacherId)
@@ -227,21 +195,16 @@ export default function KelolaJadwalClient({
         alert("Harap pilih kelas.")
         return
       }
-      if (!formData.studentId) {
-        alert("Harap pilih siswa.")
-        return
-      }
-      if (formData.teacherIds.length > 1) {
-        alert("Untuk Kelas, hanya boleh 1 guru.")
-        return
-      }
+      // Student is optional depending on business logic, but usually for private class we need it
+      // if (!formData.studentId) { alert("Harap pilih siswa."); return; }
     }
 
     setIsLoading(true)
 
+    // Data payload untuk tabel 'tbkegiatan'
     const payload = {
       nama_kegiatan: formType === 'KELAS' ? 
-        initialClasses.find(c => String(c.id) === formData.classId)?.name || 'Kelas' : 
+        (initialClasses.find(c => String(c.id) === formData.classId)?.name || 'Kelas') : 
         formData.title,
       tgl_kegiatan: formData.date,
       jam_mulai: formData.startTime,
@@ -251,84 +214,56 @@ export default function KelolaJadwalClient({
     }
 
     try {
+      let activityId: number;
+
       if (isEditMode && editingActivity) {
         // --- UPDATE ---
-        const { error } = await supabase.from('tbkegiatan').update(payload).eq('id_kegiatan', editingActivity.id)
+        activityId = editingActivity.id
+        const { error } = await supabase.from('tbkegiatan').update(payload).eq('id_kegiatan', activityId)
         if (error) throw error
 
-        // Sync Teachers
-        await supabase.from('tb_activity_teachers').delete().eq('activity_id', editingActivity.id)
-        const teacherPayload = formData.teacherIds.map(tId => ({
-          activity_id: editingActivity.id,
-          teacher_id: tId
-        }))
-        await supabase.from('tb_activity_teachers').insert(teacherPayload)
-
-        // Optimistic Update
-        const updatedTeachers = initialTeachers
-          .filter(t => formData.teacherIds.includes(String(t.id)))
-          .map(t => ({ id: String(t.id), name: t.name }))
-
-        const updatedActivity = {
-          ...editingActivity,
-          title: payload.nama_kegiatan,
-          date: payload.tgl_kegiatan,
-          startTime: payload.jam_mulai,
-          endTime: payload.jam_selesai,
-          classId: payload.id_kelas,
-          studentId: payload.id_student,
-          className: payload.id_kelas ? initialClasses.find(c => String(c.id) === String(payload.id_kelas))?.name : null,
-          teachers: updatedTeachers as TeacherOption[]
-        }
-        
-
-        setActivities(prev => prev.map(a => a.id === editingActivity.id ? updatedActivity : a))
-        
-        // Refresh detail view if open
-        if (selectedDateDetails) {
-           const newItems = selectedDateDetails.items.map(i => i.id === updatedActivity.id ? updatedActivity : i)
-           if (updatedActivity.date !== selectedDateDetails.date) {
-             setSelectedDateDetails({ ...selectedDateDetails, items: selectedDateDetails.items.filter(i => i.id !== updatedActivity.id) })
-           } else {
-             setSelectedDateDetails({ ...selectedDateDetails, items: newItems })
-           }
-        }
-
+        // Update Guru: Hapus relasi lama -> Insert baru
+        await supabase.from('tb_activity_teachers').delete().eq('activity_id', activityId)
       } else {
         // --- CREATE ---
         const { data, error } = await supabase.from('tbkegiatan').insert(payload).select().single()
         if (error) throw error
+        activityId = data.id_kegiatan
+      }
 
-        const teacherPayload = formData.teacherIds.map(tId => ({
-          activity_id: data.id_kegiatan,
-          teacher_id: tId
-        }))
-        await supabase.from('tb_activity_teachers').insert(teacherPayload)
+      // --- INSERT GURU RELATIONS ---
+      const teacherPayload = formData.teacherIds.map(tId => ({
+        activity_id: activityId,
+        teacher_id: tId
+      }))
+      const { error: relError } = await supabase.from('tb_activity_teachers').insert(teacherPayload)
+      if (relError) throw relError
 
-        const newTeachers = initialTeachers
-          .filter(t => formData.teacherIds.includes(String(t.id)))
-          .map(t => ({ id: String(t.id), name: t.name }))
+      // --- OPTIMISTIC UI UPDATE ---
+      const updatedTeachers = initialTeachers
+        .filter(t => formData.teacherIds.includes(String(t.id)))
+        .map(t => ({ id: String(t.id), name: t.name }))
 
-        const newActivity: ClientActivity = {
-          id: data.id_kegiatan,
-          title: data.nama_kegiatan,
-          date: data.tgl_kegiatan,
-          startTime: data.jam_mulai,
-          endTime: data.jam_selesai,
-          classId: data.id_kelas,
-          studentId: data.id_student,
-          teachers: newTeachers as TeacherOption[],
-          className: formType === 'KELAS' ? initialClasses.find(c => String(c.id) === formData.classId)?.name : null
-        }
+      const updatedActivity: ClientActivity = {
+        id: activityId,
+        title: payload.nama_kegiatan,
+        date: payload.tgl_kegiatan,
+        startTime: payload.jam_mulai,
+        endTime: payload.jam_selesai,
+        classId: payload.id_kelas,
+        studentId: payload.id_student,
+        className: payload.id_kelas ? initialClasses.find(c => String(c.id) === String(payload.id_kelas))?.name : null,
+        teachers: updatedTeachers as TeacherOption[]
+      }
 
-        setActivities(prev => [...prev, newActivity])
-        
-        if (selectedDateDetails && selectedDateDetails.date === newActivity.date) {
-           setSelectedDateDetails(prev => prev ? ({ ...prev, items: [...prev.items, newActivity] }) : null)
-        }
+      if (isEditMode) {
+        setActivities(prev => prev.map(a => a.id === activityId ? updatedActivity : a))
+      } else {
+        setActivities(prev => [...prev, updatedActivity])
       }
       
       setIsDialogOpen(false)
+      setIsDayDetailOpen(false) // Close detail view to force refresh or prevent stale data
     } catch (error: any) {
       alert('Error: ' + error.message)
     } finally {
@@ -339,6 +274,7 @@ export default function KelolaJadwalClient({
   const handleDelete = async () => {
     if (!deletingId) return
     setIsLoading(true)
+    // Cascade delete di database akan menghapus relasi di tb_activity_teachers otomatis
     const { error } = await supabase.from('tbkegiatan').delete().eq('id_kegiatan', deletingId)
     
     if (error) {
@@ -388,14 +324,12 @@ export default function KelolaJadwalClient({
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {/* Days Header */}
           <div className="grid grid-cols-7 border-b text-center text-sm font-medium text-muted-foreground bg-muted/20">
             {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].map(day => (
               <div key={day} className="py-2 border-r last:border-r-0">{day}</div>
             ))}
           </div>
           
-          {/* Days Grid */}
           <div className="grid grid-cols-7 auto-rows-[minmax(120px,auto)] text-sm">
             {Array.from({ length: firstDayOfMonth }).map((_, i) => (
               <div key={`empty-${i}`} className="border-b border-r bg-muted/5 p-2" />
@@ -579,12 +513,11 @@ export default function KelolaJadwalClient({
                   </Select>
                 </div>
 
-                {/* Single Teacher Selection for CLASS */}
                 <div className="grid gap-2">
                   <Label>Guru Pengajar (Wajib 1 Orang)</Label>
                   <Select 
                     value={formData.teacherIds[0] || ''} 
-                    onValueChange={(val) => setFormData({...formData, teacherIds: [val]})} // Replace array with single ID
+                    onValueChange={(val) => setFormData({...formData, teacherIds: [val]})} 
                   >
                     <SelectTrigger><SelectValue placeholder="Pilih Guru" /></SelectTrigger>
                     <SelectContent>
@@ -606,7 +539,6 @@ export default function KelolaJadwalClient({
                   />
                 </div>
 
-                {/* Multi-Select Teachers for ACTIVITY */}
                 <div className="grid gap-2">
                   <Label>Partisipan Guru (Bisa lebih dari 1)</Label>
                   <Popover>
