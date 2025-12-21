@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/supabase/client' // Gunakan client browser
 import { format } from 'date-fns'
 import { id as indonesia } from 'date-fns/locale'
 
@@ -11,13 +11,11 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { Input } from '@/components/ui/input' // <-- SUDAH DI-FIX
-import { Textarea } from '@/components/ui/textarea' // <-- SUDAH DI-FIX
-import { Separator } from '@/components/ui/separator'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Save, ArrowLeft, CheckCircle2, Clock, MapPin, User, Loader2, UploadCloud, Image as ImageIcon } from 'lucide-react'
+import { Save, ArrowLeft, Clock, MapPin, Loader2 } from 'lucide-react'
 import Link from 'next/link'
-import { cn } from '@/lib/utils'
 
 type Props = {
   activity: any
@@ -55,7 +53,7 @@ export default function AbsensiClient({ activity, students, existingAttendance, 
     return initial
   })
 
-  // Handlers Umum
+  // --- Handlers Umum (Untuk Kegiatan Non-Kelas) ---
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0]
@@ -69,6 +67,7 @@ export default function AbsensiClient({ activity, students, existingAttendance, 
     try {
       let imagePath = activity.bukti_foto
 
+      // 1. Upload Foto Baru (Jika ada)
       if (generalImage) {
         const fileExt = generalImage.name.split('.').pop()
         const fileName = `${activity.id_kegiatan}-${Date.now()}.${fileExt}`
@@ -77,16 +76,25 @@ export default function AbsensiClient({ activity, students, existingAttendance, 
         imagePath = fileName
       }
 
+      // 2. Update Database & LOCK KEMBALI
       const { error } = await supabase.from('tbkegiatan').update({
         catatan_kegiatan: generalNote,
         bukti_foto: imagePath,
-        status_kegiatan: 'Selesai'
+        status_kegiatan: 'Selesai',
+        
+        // --- UPDATE PENTING: KUNCI KEMBALI SETELAH SIMPAN ---
+        is_editable: false,           // Gembok dikunci
+        request_edit_status: 'none'   // Reset status request
+        // ----------------------------------------------------
+
       }).eq('id_kegiatan', activity.id_kegiatan)
 
       if (error) throw error
+      
+      // Sukses
       alert("Laporan tersimpan!")
-      router.push('/protected/teacher/dashboard')
-      router.refresh()
+      router.push('/protected/teacher/absensi') // Redirect ke list
+      router.refresh() // Refresh agar status tombol berubah
     } catch (err: any) {
       alert("Error: " + err.message)
     } finally {
@@ -94,7 +102,7 @@ export default function AbsensiClient({ activity, students, existingAttendance, 
     }
   }
 
-  // Handlers Siswa
+  // --- Handlers Siswa (Untuk Absensi Kelas) ---
   const handleStatusChange = (id: number, val: string) => {
     setAttendanceData(prev => ({ ...prev, [id]: { ...prev[id], status: val } }))
   }
@@ -109,6 +117,8 @@ export default function AbsensiClient({ activity, students, existingAttendance, 
 
   const handleSubmitAttendance = async () => {
     setIsLoading(true)
+    
+    // 1. Simpan Data Absensi (Upsert)
     const payload = Object.values(attendanceData).map((r: any) => ({
       id_kegiatan: activity.id_kegiatan,
       id_student: r.id_student,
@@ -119,21 +129,37 @@ export default function AbsensiClient({ activity, students, existingAttendance, 
     const { error } = await supabase.from('tb_attendance').upsert(payload, { onConflict: 'id_kegiatan, id_student' })
     
     if (error) {
-      alert("Gagal: " + error.message)
+      alert("Gagal menyimpan absensi: " + error.message)
       setIsLoading(false)
+      return
+    } 
+    
+    // 2. Update Status Kegiatan & LOCK KEMBALI
+    const { error: updateError } = await supabase.from('tbkegiatan').update({ 
+        status_kegiatan: 'Selesai',
+        
+        // --- UPDATE PENTING: KUNCI KEMBALI SETELAH SIMPAN ---
+        is_editable: false,           // Gembok dikunci
+        request_edit_status: 'none'   // Reset status request
+        // ----------------------------------------------------
+        
+    }).eq('id_kegiatan', activity.id_kegiatan)
+
+    if (updateError) {
+        alert("Absensi tersimpan tapi gagal mengupdate status kegiatan.")
     } else {
-      await supabase.from('tbkegiatan').update({ status_kegiatan: 'Selesai' }).eq('id_kegiatan', activity.id_kegiatan)
-      alert("Absensi tersimpan!")
-      router.push('/protected/teacher/dashboard')
-      router.refresh()
+        alert("Absensi tersimpan!")
+        router.push('/protected/teacher/absensi') // Redirect ke list
+        router.refresh() // Refresh agar status tombol berubah
     }
+    setIsLoading(false)
   }
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-20">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild>
-          <Link href="/protected/teacher/dashboard"><ArrowLeft className="h-5 w-5" /></Link>
+          <Link href="/protected/teacher/absensi"><ArrowLeft className="h-5 w-5" /></Link>
         </Button>
         <div>
           <h1 className="text-2xl font-bold">{isGeneralActivity ? "Laporan Kegiatan" : "Input Absensi"}</h1>

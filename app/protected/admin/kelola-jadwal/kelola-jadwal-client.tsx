@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { format } from 'date-fns'
+import { format, isBefore, parseISO } from 'date-fns'
 import { id as indonesia } from 'date-fns/locale'
 
 // --- UI Components ---
@@ -32,7 +32,7 @@ import {
 // --- Icons ---
 import { 
   ChevronLeft, ChevronRight, Calendar as CalendarIcon, Plus, Users, 
-  Pencil, Trash2, Clock, Check, ChevronsUpDown, X, Loader2, User
+  Pencil, Trash2, Clock, Check, ChevronsUpDown, X, Loader2, User, Lock
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -98,6 +98,14 @@ export default function KelolaJadwalClient({
     endTime: '09:00'
   })
 
+  // --- LOGIC: Cek Apakah Jadwal Sudah Lampau ---
+  const isPastActivity = (dateStr: string | null, endTimeStr: string | null) => {
+    if (!dateStr) return false;
+    // Menggabungkan tanggal dan jam selesai (Format: YYYY-MM-DDTHH:mm:ss)
+    const combinedDateTime = parseISO(`${dateStr}T${endTimeStr || '23:59:59'}`);
+    return isBefore(combinedDateTime, new Date());
+  };
+
   // Filter students based on selected class
   const filteredStudents = useMemo(() => {
     if (!formData.classId) return []
@@ -143,6 +151,12 @@ export default function KelolaJadwalClient({
   }
 
   const handleOpenEdit = (act: ClientActivity) => {
+    // PROTEKSI: Cek jika lampau
+    if (isPastActivity(act.date, act.endTime)) {
+        alert("Jadwal lampau tidak dapat diedit.");
+        return;
+    }
+
     setEditingActivity(act)
     setIsEditMode(true)
     const type = act.classId ? 'KELAS' : 'KEGIATAN'
@@ -183,25 +197,11 @@ export default function KelolaJadwalClient({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
-    // --- VALIDATION ---
-    if (formData.teacherIds.length === 0) {
-      alert("Harap pilih guru.")
-      return
-    }
-
-    if (formType === 'KELAS') {
-      if (!formData.classId) {
-        alert("Harap pilih kelas.")
-        return
-      }
-      // Student is optional depending on business logic, but usually for private class we need it
-      // if (!formData.studentId) { alert("Harap pilih siswa."); return; }
-    }
+    if (formData.teacherIds.length === 0) { alert("Harap pilih guru."); return; }
+    if (formType === 'KELAS' && !formData.classId) { alert("Harap pilih kelas."); return; }
 
     setIsLoading(true)
 
-    // Data payload untuk tabel 'tbkegiatan'
     const payload = {
       nama_kegiatan: formType === 'KELAS' ? 
         (initialClasses.find(c => String(c.id) === formData.classId)?.name || 'Kelas') : 
@@ -215,23 +215,17 @@ export default function KelolaJadwalClient({
 
     try {
       let activityId: number;
-
       if (isEditMode && editingActivity) {
-        // --- UPDATE ---
         activityId = editingActivity.id
         const { error } = await supabase.from('tbkegiatan').update(payload).eq('id_kegiatan', activityId)
         if (error) throw error
-
-        // Update Guru: Hapus relasi lama -> Insert baru
         await supabase.from('tb_activity_teachers').delete().eq('activity_id', activityId)
       } else {
-        // --- CREATE ---
         const { data, error } = await supabase.from('tbkegiatan').insert(payload).select().single()
         if (error) throw error
         activityId = data.id_kegiatan
       }
 
-      // --- INSERT GURU RELATIONS ---
       const teacherPayload = formData.teacherIds.map(tId => ({
         activity_id: activityId,
         teacher_id: tId
@@ -239,7 +233,6 @@ export default function KelolaJadwalClient({
       const { error: relError } = await supabase.from('tb_activity_teachers').insert(teacherPayload)
       if (relError) throw relError
 
-      // --- OPTIMISTIC UI UPDATE ---
       const updatedTeachers = initialTeachers
         .filter(t => formData.teacherIds.includes(String(t.id)))
         .map(t => ({ id: String(t.id), name: t.name }))
@@ -261,9 +254,8 @@ export default function KelolaJadwalClient({
       } else {
         setActivities(prev => [...prev, updatedActivity])
       }
-      
       setIsDialogOpen(false)
-      setIsDayDetailOpen(false) // Close detail view to force refresh or prevent stale data
+      setIsDayDetailOpen(false)
     } catch (error: any) {
       alert('Error: ' + error.message)
     } finally {
@@ -273,8 +265,16 @@ export default function KelolaJadwalClient({
 
   const handleDelete = async () => {
     if (!deletingId) return
+    
+    // PROTEKSI: Cek jika lampau
+    const target = activities.find(a => a.id === deletingId);
+    if (target && isPastActivity(target.date, target.endTime)) {
+        alert("Jadwal lampau tidak dapat dihapus.");
+        setIsAlertOpen(false);
+        return;
+    }
+
     setIsLoading(true)
-    // Cascade delete di database akan menghapus relasi di tb_activity_teachers otomatis
     const { error } = await supabase.from('tbkegiatan').delete().eq('id_kegiatan', deletingId)
     
     if (error) {
@@ -293,17 +293,10 @@ export default function KelolaJadwalClient({
     <div className="space-y-8">
       {/* --- Top Buttons --- */}
       <div className="flex flex-col sm:flex-row gap-4">
-        <Button 
-          onClick={() => handleOpenAdd('KELAS')} 
-          className="flex-1 h-12 text-lg bg-blue-600 hover:bg-blue-700 shadow-md"
-        >
+        <Button onClick={() => handleOpenAdd('KELAS')} className="flex-1 h-12 text-lg bg-blue-600 hover:bg-blue-700 shadow-md">
           <Users className="mr-2 h-5 w-5" /> Jadwal Kelas (Privat)
         </Button>
-        <Button 
-          onClick={() => handleOpenAdd('KEGIATAN')} 
-          className="flex-1 h-12 text-lg shadow-sm" 
-          variant="outline"
-        >
+        <Button onClick={() => handleOpenAdd('KEGIATAN')} className="flex-1 h-12 text-lg shadow-sm" variant="outline">
           <Plus className="mr-2 h-5 w-5" /> Tambah Kegiatan
         </Button>
       </div>
@@ -369,6 +362,7 @@ export default function KelolaJadwalClient({
                         key={act.id} 
                         className={cn(
                           "truncate rounded px-1.5 py-0.5 text-[10px] font-medium border shadow-sm",
+                          isPastActivity(act.date, act.endTime) ? "bg-gray-100 text-gray-400 border-gray-200 line-through" :
                           act.classId ? "bg-green-100 text-green-700 border-green-200" : "bg-orange-100 text-orange-700 border-orange-200"
                         )}
                       >
@@ -399,75 +393,69 @@ export default function KelolaJadwalClient({
                   Tidak ada kegiatan di tanggal ini.
                 </div>
               ) : (
-                selectedDateDetails?.items.map((act) => (
-                  <div key={act.id} className="flex items-start justify-between p-3 rounded-lg border bg-card hover:bg-accent/10 transition-colors">
-                    <div className="space-y-1 w-full">
-                      <div className="flex items-center gap-2">
-                          <h4 className="font-semibold text-sm">{act.title}</h4>
-                          <Badge variant={act.classId ? "default" : "outline"} className="text-[10px] px-1.5 h-5">
-                              {act.classId ? "Kelas" : "Kegiatan"}
-                          </Badge>
+                selectedDateDetails?.items.map((act) => {
+                  const activityIsPast = isPastActivity(act.date, act.endTime);
+                  
+                  return (
+                    <div key={act.id} className="flex items-start justify-between p-3 rounded-lg border bg-card hover:bg-accent/10 transition-colors">
+                      <div className="space-y-1 w-full">
+                        <div className="flex items-center gap-2">
+                            <h4 className={cn("font-semibold text-sm", activityIsPast && "text-muted-foreground line-through")}>
+                                {act.title}
+                            </h4>
+                            <Badge variant={act.classId ? "default" : "outline"} className="text-[10px] px-1.5 h-5">
+                                {act.classId ? "Kelas" : "Kegiatan"}
+                            </Badge>
+                            {activityIsPast && <Badge variant="secondary" className="text-[10px] h-5 bg-gray-100 text-gray-500">Selesai</Badge>}
+                        </div>
+                        
+                        <div className="text-xs text-muted-foreground space-y-1 mt-1">
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-3 w-3" /> 
+                            <span>{act.startTime?.slice(0,5)} - {act.endTime?.slice(0,5)}</span>
+                          </div>
+                          {act.teachers.length > 0 && (
+                            <div className="flex items-start gap-2">
+                              <Users className="h-3 w-3 mt-0.5" />
+                              <div className="flex flex-wrap gap-1">
+                                  {act.teachers.map(t => (
+                                      <Badge key={t.id} variant="secondary" className="text-[10px] px-1 py-0 h-auto font-normal">
+                                        {t.name}
+                                      </Badge>
+                                  ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                       
-                      <div className="text-xs text-muted-foreground space-y-1 mt-1">
-                        <div className="flex items-center gap-2">
-                          <Clock className="h-3 w-3" /> 
-                          <span>{act.startTime?.slice(0,5)} - {act.endTime?.slice(0,5)}</span>
-                        </div>
-                        {act.teachers.length > 0 && (
-                          <div className="flex items-start gap-2">
-                            <Users className="h-3 w-3 mt-0.5" />
-                            <div className="flex flex-wrap gap-1">
-                                {act.teachers.map(t => (
-                                    <Badge key={t.id} variant="secondary" className="text-[10px] px-1 py-0 h-auto font-normal">
-                                      {t.name}
-                                    </Badge>
-                                ))}
+                      <div className="flex gap-1 ml-2">
+                        {!activityIsPast ? (
+                            <>
+                                <Button size="icon" variant="ghost" className="h-8 w-8 text-blue-600 hover:bg-blue-50" onClick={() => handleOpenEdit(act)}>
+                                    <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button size="icon" variant="ghost" className="h-8 w-8 text-red-500 hover:bg-red-50" onClick={() => { setDeletingId(act.id); setIsAlertOpen(true); }}>
+                                    <Trash2 className="h-4 w-4" />
+                                </Button>
+                            </>
+                        ) : (
+                            <div className="h-8 w-8 flex items-center justify-center text-muted-foreground/30" title="Jadwal lampau dikunci">
+                                <Lock className="h-4 w-4" />
                             </div>
-                          </div>
-                        )}
-                        {act.studentId && (
-                           <div className="flex items-center gap-2 text-blue-600">
-                             <User className="h-3 w-3" />
-                             <span className="font-medium">
-                               {initialStudents.find(s => s.id === act.studentId)?.name || `Student ID: ${act.studentId}`}
-                             </span>
-                           </div>
                         )}
                       </div>
                     </div>
-                    
-                    <div className="flex gap-1 ml-2">
-                      <Button size="icon" variant="ghost" className="h-8 w-8 text-blue-600 hover:bg-blue-50" onClick={() => handleOpenEdit(act)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8 text-red-500 hover:bg-red-50" onClick={() => { setDeletingId(act.id); setIsAlertOpen(true); }}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))
+                  )
+                })
               )}
             </div>
           </ScrollArea>
           <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button 
-              className="w-full sm:w-1/2" 
-              variant="outline"
-              onClick={() => { 
-                setIsDayDetailOpen(false); 
-                handleOpenAdd('KEGIATAN', selectedDateDetails?.date); 
-              }}
-            >
+            <Button className="w-full sm:w-1/2" variant="outline" onClick={() => { setIsDayDetailOpen(false); handleOpenAdd('KEGIATAN', selectedDateDetails?.date); }}>
               <Plus className="mr-2 h-4 w-4" /> Kegiatan
             </Button>
-            <Button 
-              className="w-full sm:w-1/2 bg-blue-600 hover:bg-blue-700" 
-              onClick={() => { 
-                setIsDayDetailOpen(false); 
-                handleOpenAdd('KELAS', selectedDateDetails?.date); 
-              }}
-            >
+            <Button className="w-full sm:w-1/2 bg-blue-600 hover:bg-blue-700" onClick={() => { setIsDayDetailOpen(false); handleOpenAdd('KELAS', selectedDateDetails?.date); }}>
               <Users className="mr-2 h-4 w-4" /> Kelas
             </Button>
           </DialogFooter>
@@ -483,8 +471,6 @@ export default function KelolaJadwalClient({
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4 py-4">
-            
-            {/* Conditional Fields: KELAS vs KEGIATAN */}
             {formType === 'KELAS' ? (
               <>
                 <div className="grid gap-2">
@@ -498,7 +484,6 @@ export default function KelolaJadwalClient({
                     </SelectContent>
                   </Select>
                 </div>
-
                 <div className="grid gap-2">
                   <Label>Siswa (Wajib 1 Orang)</Label>
                   <Select value={formData.studentId} onValueChange={(val) => setFormData({...formData, studentId: val})} disabled={!formData.classId}>
@@ -512,13 +497,9 @@ export default function KelolaJadwalClient({
                     </SelectContent>
                   </Select>
                 </div>
-
                 <div className="grid gap-2">
                   <Label>Guru Pengajar (Wajib 1 Orang)</Label>
-                  <Select 
-                    value={formData.teacherIds[0] || ''} 
-                    onValueChange={(val) => setFormData({...formData, teacherIds: [val]})} 
-                  >
+                  <Select value={formData.teacherIds[0] || ''} onValueChange={(val) => setFormData({...formData, teacherIds: [val]})}>
                     <SelectTrigger><SelectValue placeholder="Pilih Guru" /></SelectTrigger>
                     <SelectContent>
                       {initialTeachers.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)}
@@ -527,20 +508,13 @@ export default function KelolaJadwalClient({
                 </div>
               </>
             ) : (
-              // FORM KEGIATAN
               <>
                 <div className="grid gap-2">
                   <Label>Nama Kegiatan</Label>
-                  <Input 
-                    value={formData.title} 
-                    onChange={(e) => setFormData({...formData, title: e.target.value})} 
-                    placeholder="Contoh: Rapat Guru" 
-                    required 
-                  />
+                  <Input value={formData.title} onChange={(e) => setFormData({...formData, title: e.target.value})} placeholder="Contoh: Rapat Guru" required />
                 </div>
-
                 <div className="grid gap-2">
-                  <Label>Partisipan Guru (Bisa lebih dari 1)</Label>
+                  <Label>Partisipan Guru</Label>
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button variant="outline" role="combobox" className="justify-between">
@@ -565,22 +539,10 @@ export default function KelolaJadwalClient({
                       </Command>
                     </PopoverContent>
                   </Popover>
-                  <div className="flex flex-wrap gap-2 mt-1">
-                    {formData.teacherIds.map(id => {
-                      const t = initialTeachers.find(te => String(te.id) === id)
-                      return t ? (
-                        <Badge key={id} variant="secondary" className="pr-1">
-                          {t.name}
-                          <X className="ml-1 h-3 w-3 cursor-pointer hover:text-red-500" onClick={() => toggleTeacherMulti(id)} />
-                        </Badge>
-                      ) : null
-                    })}
-                  </div>
                 </div>
               </>
             )}
 
-            {/* Time Inputs */}
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Tanggal</Label>
@@ -597,8 +559,7 @@ export default function KelolaJadwalClient({
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={() => setIsDialogOpen(false)}>Batal</Button>
               <Button type="submit" disabled={isLoading}>
-                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Simpan
+                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Simpan
               </Button>
             </DialogFooter>
           </form>
@@ -620,7 +581,6 @@ export default function KelolaJadwalClient({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
     </div>
   )
 }

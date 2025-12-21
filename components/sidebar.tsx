@@ -84,11 +84,6 @@ const roleMenus: Record<string, MenuItem[]> = {
       icon: BookOpen,
     },
     {
-      title: "Pengajuan Edit",
-      href: "/protected/teacher/pengajuan-edit",
-      icon: FileEdit,
-    },
-    {
       title: "Account",
       href: "/protected/teacher/account",
       icon: UserCircle,

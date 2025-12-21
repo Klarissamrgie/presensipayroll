@@ -1,11 +1,12 @@
 import React from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Users, Clock, DollarSign } from 'lucide-react'
+import { Users, Clock, DollarSign, CalendarRange } from 'lucide-react'
 import { redirect } from 'next/navigation'
-// UBAH IMPORT INI: Gunakan helper server yang baru dibuat
 import { createClient } from '@/lib/supabase/server' 
+// UBAH IMPORT DI BAWAH INI
+import StudentFilter from './student-filter' 
+import { StudentPagination } from './student-paggination' // <--- PAKAI KURUNG KURAWAL { }
 
-// Force dynamic agar tidak di-cache statis
 export const dynamic = 'force-dynamic'
 
 interface StudentData {
@@ -16,25 +17,15 @@ interface StudentData {
   jumlah: number
 }
 
-async function getStudentData() {
-  // 1. BUAT CLIENT KHUSUS SERVER
-  // Client ini bisa membaca cookies browser, jadi user tidak akan ter-logout
+async function getStudentData(startDate: string, endDate: string) {
   const supabase = await createClient()
 
-  console.log("--- START FETCHING DATA (SERVER SIDE) ---")
+  console.log("--- FETCHING DATA WITH FILTER:", { startDate, endDate }, "---")
 
-  // 2. CEK USER LOGIN
   const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-  if (authError || !user) {
-    console.log("User tidak terdeteksi (Cookie mungkin kosong/expired)")
-    return null 
-  }
-
+  if (authError || !user) return null 
   const currentTeacherId = user.id
-  console.log("👮 Logged in Teacher ID:", currentTeacherId)
 
-  // 3. QUERY DATABASE
   const { data, error } = await supabase
     .from('tbstudents')
     .select(`
@@ -47,7 +38,11 @@ async function getStudentData() {
       tb_attendance (
         status,
         tbkegiatan (
-            id_teacher
+            id_kegiatan,
+            tgl_kegiatan,
+            tb_activity_teachers (
+                teacher_id
+            )
         )
       )
     `)
@@ -58,23 +53,33 @@ async function getStudentData() {
     return []
   }
 
-  // 4. MAPPING & FILTERING
+  // LOGIC FILTERING
   const formattedData: StudentData[] = data.map((student: any) => {
-    // A. Grade & Harga
     const gradeName = student.tbgrade?.name_grade || 'No Grade'
     const hargaPerSesi = student.tbgrade?.harga_grade ? Number(student.tbgrade.harga_grade) : 0
-
-    // B. Filter Absensi Khusus Guru Ini
     const rawAttendance = student.tb_attendance || []
     
+    // Filter Absensi
     const listHadirGuruIni = rawAttendance.filter((absen: any) => {
-        // Cek Status 'Hadir' (Case insensitive safe)
+        // 1. Cek Status 'Hadir'
         const statusValid = absen.status && absen.status.trim().toLowerCase() === 'hadir';
         
-        // Cek apakah kegiatan ini milik guru yang login
-        const isMyClass = absen.tbkegiatan?.id_teacher === currentTeacherId;
+        // 2. Cek Guru (Milik saya?)
+        const teachersInClass = absen.tbkegiatan?.tb_activity_teachers || [];
+        const isMyClass = teachersInClass.some((t: any) => t.teacher_id === currentTeacherId);
 
-        return statusValid && isMyClass;
+        // 3. Cek Filter Tanggal
+        let dateValid = true
+        const activityDate = absen.tbkegiatan?.tgl_kegiatan
+
+        if (activityDate) {
+            if (activityDate < startDate) dateValid = false;
+            if (activityDate > endDate) dateValid = false;
+        } else {
+            dateValid = false;
+        }
+
+        return statusValid && isMyClass && dateValid;
     })
 
     const frekuensiHadir = listHadirGuruIni.length;
@@ -92,18 +97,40 @@ async function getStudentData() {
   return formattedData
 }
 
-const Student = async () => {
-  const students = await getStudentData()
+type Props = {
+    searchParams: Promise<{ startDate?: string, endDate?: string, page?: string }>
+}
 
-  // 🔴 JIKA NULL (BELUM LOGIN), REDIRECT
-  if (students === null) {
-      redirect('/auth/login') // Pastikan URL login Anda benar
-  }
+const Student = async ({ searchParams }: Props) => {
+  const params = await searchParams;
   
-  // Hitung Summary
-  const totalStudents = students.length
-  const totalWorkHours = students.reduce((sum, student) => sum + student.frekuensi, 0)
-  const totalSalary = students.reduce((sum, student) => sum + student.jumlah, 0)
+  // 1. Handle Filter Tanggal (Default Bulan Ini)
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString('en-CA');
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toLocaleDateString('en-CA');
+
+  const startDate = params.startDate || startOfMonth;
+  const endDate = params.endDate || endOfMonth;
+
+  // 2. Fetch Semua Data
+  const allStudents = await getStudentData(startDate, endDate)
+
+  if (allStudents === null) redirect('/auth/login')
+  
+  // 3. Hitung Summary (Total Keseluruhan sebelum dipotong page)
+  const activeStudents = allStudents.filter(s => s.frekuensi > 0).length
+  const totalWorkHours = allStudents.reduce((sum, student) => sum + student.frekuensi, 0)
+  const totalSalary = allStudents.reduce((sum, student) => sum + student.jumlah, 0)
+
+  // 4. Logic Pagination
+  const currentPage = Number(params.page) || 1
+  const ITEMS_PER_PAGE = 10 
+  const totalData = allStudents.length
+  const totalPages = Math.ceil(totalData / ITEMS_PER_PAGE)
+
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+  const endIndex = startIndex + ITEMS_PER_PAGE
+  const paginatedStudents = allStudents.slice(startIndex, endIndex)
 
   const formatIDR = (num: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -117,52 +144,63 @@ const Student = async () => {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold">My Payroll & Student Data</h1>
+        <h1 className="text-3xl font-bold">My Student Payroll</h1>
         <p className="text-muted-foreground text-sm">
-            Menampilkan data siswa & gaji berdasarkan kelas yang <u>Anda</u> ajar.
+            Laporan gaji berdasarkan absensi kelas yang Anda ajar.
         </p>
       </div>
 
-      {/* --- CARDS --- */}
+      {/* --- FILTER COMPONENT --- */}
+      <StudentFilter />
+
+      {/* --- INFO FILTER AKTIF --- */}
+      <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 p-3 rounded-md border border-blue-200">
+          <CalendarRange className="w-4 h-4" />
+          <span>
+              Menampilkan data periode: <b>{startDate}</b> s/d <b>{endDate}</b>
+          </span>
+      </div>
+
+      {/* --- CARDS SUMMARY --- */}
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="bg-red-500 text-white border-none shadow-md">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-white/90">Total Students</CardTitle>
+            <CardTitle className="text-sm font-medium text-white/90">Active Students</CardTitle>
             <Users className="h-4 w-4 text-white/90" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalStudents}</div>
-            <p className="text-xs text-red-100">Siswa dalam database</p>
+            <div className="text-2xl font-bold">{activeStudents}</div>
+            <p className="text-xs text-red-100">Siswa hadir dalam periode ini</p>
           </CardContent>
         </Card>
 
         <Card className='bg-[#8C84D9] text-white border-none shadow-md'>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-white/90">My Sessions</CardTitle>
+            <CardTitle className="text-sm font-medium text-white/90">Sessions</CardTitle>
             <Clock className="h-4 w-4 text-white/90" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totalWorkHours}</div>
-            <p className="text-xs text-indigo-100">Total sesi yang Anda ajar</p>
+            <p className="text-xs text-indigo-100">Total kehadiran sesi</p>
           </CardContent>
         </Card>
 
         <Card className='bg-[#1D94AC] text-white border-none shadow-md'>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-white/90">My Payroll</CardTitle>
+            <CardTitle className="text-sm font-medium text-white/90">Payroll</CardTitle>
             <DollarSign className="h-4 w-4 text-white/90" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatIDR(totalSalary)}</div>
-            <p className="text-xs text-cyan-100">Estimasi pendapatan Anda</p>
+            <p className="text-xs text-cyan-100">Estimasi pendapatan periode ini</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* --- TABLE --- */}
+      {/* --- TABLE DETAILS --- */}
       <Card>
         <CardHeader>
-          <CardTitle>Rincian Gaji Per Siswa</CardTitle>
+          <CardTitle>Rincian Per Siswa</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -172,12 +210,12 @@ const Student = async () => {
                   <th className="text-left p-4 font-semibold text-muted-foreground">Nama Siswa</th>
                   <th className="text-left p-4 font-semibold text-muted-foreground">Grade</th>
                   <th className="text-left p-4 font-semibold text-muted-foreground">Rate</th>
-                  <th className="text-center p-4 font-semibold text-muted-foreground">Freq (My Class)</th>
+                  <th className="text-center p-4 font-semibold text-muted-foreground">Frekuensi</th>
                   <th className="text-right p-4 font-semibold text-muted-foreground">Total</th>
                 </tr>
               </thead>
               <tbody>
-                {students.map((student, index) => (
+                {paginatedStudents.map((student, index) => (
                   <tr key={index} className="border-b hover:bg-muted/50 transition-colors">
                     <td className="p-4 font-medium">{student.name}</td>
                     <td className="p-4">{student.grade}</td>
@@ -193,11 +231,19 @@ const Student = async () => {
                   </tr>
                 ))}
                 
-                {students.length === 0 && (
-                   <tr><td colSpan={5} className="p-8 text-center text-muted-foreground">Data tidak ditemukan</td></tr>
+                {paginatedStudents.length === 0 && (
+                   <tr><td colSpan={5} className="p-8 text-center text-muted-foreground">Data siswa tidak ditemukan</td></tr>
                 )}
               </tbody>
             </table>
+
+            {/* Pagination Controls */}
+            <StudentPagination 
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalData={totalData}
+            />
+
           </div>
         </CardContent>
       </Card>

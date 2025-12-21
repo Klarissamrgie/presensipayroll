@@ -8,12 +8,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 // Icons
-import { Calendar, Clock, MapPin, Users, BookOpen, ChevronRight, CheckCircle2 } from "lucide-react";
+import { Calendar, Clock, BookOpen, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
+
+// IMPORT TOMBOL CERDAS
+import ActivityActionButton from "../absensi/activity-action-button";
 
 export const dynamic = 'force-dynamic';
 
@@ -33,12 +35,15 @@ export default async function TeacherDashboardPage() {
     .eq("id_teacher", user.id)
     .single();
 
-  // Helper Tanggal
-  const today = new Date();
-  const dateStr = format(today, 'yyyy-MM-dd');
+  // --- FIX TIMEZONE (PENTING) ---
+  // Kita gunakan toLocaleDateString dengan timeZone 'Asia/Jakarta'
+  // Format 'en-CA' menghasilkan output YYYY-MM-DD yang sesuai dengan format database PostgreSQL
+  const dateStr = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" });
+  
+  // Untuk tampilan UI (Hari Tanggal)
+  const todayDate = new Date(); // Object date untuk formatter UI
 
   // 3. Ambil Jadwal HARI INI
-  // Menggunakan !inner join untuk memfilter kegiatan yang teacher-nya adalah user yang login
   const { data: todaysSchedule, error } = await supabase
     .from("tbkegiatan")
     .select(`
@@ -48,11 +53,15 @@ export default async function TeacherDashboardPage() {
       jam_mulai,
       jam_selesai,
       id_kelas,
+      status_kegiatan,
+      request_edit_status,
+      is_editable,
       tbkelas (name_kelas),
-      tb_activity_teachers!inner (teacher_id)
+      tb_activity_teachers!inner (teacher_id),
+      tb_attendance (id_attendance)
     `)
     .eq("tb_activity_teachers.teacher_id", user.id)
-    .eq("tgl_kegiatan", dateStr)
+    .eq("tgl_kegiatan", dateStr) // Filter Tanggal Sesuai Timezone Jakarta
     .order("jam_mulai", { ascending: true });
 
   // 4. Ambil Jadwal MENDATANG (Limit 3)
@@ -68,13 +77,11 @@ export default async function TeacherDashboardPage() {
       tb_activity_teachers!inner (teacher_id)
     `)
     .eq("tb_activity_teachers.teacher_id", user.id)
-    .gt("tgl_kegiatan", dateStr) // Tanggal lebih besar dari hari ini
+    .gt("tgl_kegiatan", dateStr) // Lebih besar dari hari ini
     .order("tgl_kegiatan", { ascending: true })
     .limit(3);
 
-  // --- Statistik Sederhana ---
   const totalClassesToday = todaysSchedule?.length || 0;
-  // Hitung durasi kasar (opsional) - disini kita hitung sesi saja
 
   return (
     <div className="space-y-6">
@@ -85,7 +92,7 @@ export default async function TeacherDashboardPage() {
             Halo, {teacherProfile?.nama || "Guru"}! 👋
           </h1>
           <p className="text-muted-foreground">
-            {format(today, "EEEE, dd MMMM yyyy", { locale: indonesia })}
+            {format(todayDate, "EEEE, dd MMMM yyyy", { locale: indonesia })}
           </p>
         </div>
         <div className="flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-lg border border-blue-100">
@@ -100,7 +107,7 @@ export default async function TeacherDashboardPage() {
 
       <div className="grid gap-6 md:grid-cols-12">
         
-        {/* --- LEFT COLUMN (Jadwal Hari Ini) - Span 8 --- */}
+        {/* --- LEFT COLUMN (Jadwal Hari Ini) --- */}
         <div className="md:col-span-8 space-y-6">
           <Card className="border-l-4 border-l-blue-600 shadow-sm">
             <CardHeader>
@@ -109,62 +116,71 @@ export default async function TeacherDashboardPage() {
                 Jadwal Mengajar Hari Ini
               </CardTitle>
               <CardDescription>
-                Silakan pilih kelas untuk melakukan absensi siswa.
+                Hanya menampilkan kelas di tanggal <b>{dateStr}</b>.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
                 {todaysSchedule && todaysSchedule.length > 0 ? (
-                  todaysSchedule.map((item: any) => (
-                    <div 
-                      key={item.id_kegiatan}
-                      className="group flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-all"
-                    >
-                      <div className="flex items-start gap-4 mb-4 sm:mb-0">
-                        {/* Waktu */}
-                        <div className="flex flex-col items-center justify-center min-w-[80px] bg-muted/50 p-2 rounded-md border">
-                          <span className="text-sm font-bold text-foreground">
-                            {item.jam_mulai?.slice(0, 5)}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground">s/d</span>
-                          <span className="text-xs font-medium text-muted-foreground">
-                            {item.jam_selesai?.slice(0, 5)}
-                          </span>
-                        </div>
+                  todaysSchedule.map((item: any) => {
+                    // Logic menentukan status isDone
+                    const isDone = (item.tb_attendance && item.tb_attendance.length > 0) || item.status_kegiatan === 'Selesai';
+                    
+                    return (
+                      <div 
+                        key={item.id_kegiatan}
+                        className="group flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-all"
+                      >
+                        <div className="flex items-start gap-4 mb-4 sm:mb-0">
+                          {/* Waktu */}
+                          <div className="flex flex-col items-center justify-center min-w-[80px] bg-muted/50 p-2 rounded-md border">
+                            <span className="text-sm font-bold text-foreground">
+                              {item.jam_mulai?.slice(0, 5)}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">s/d</span>
+                            <span className="text-xs font-medium text-muted-foreground">
+                              {item.jam_selesai?.slice(0, 5)}
+                            </span>
+                          </div>
 
-                        {/* Detail Kelas */}
-                        <div className="space-y-1">
-                          <h3 className="font-semibold text-base flex items-center gap-2">
-                            {item.nama_kegiatan}
-                            <Badge variant={item.id_kelas ? "default" : "secondary"} className="text-[10px] h-5">
-                              {item.id_kelas ? "Kelas" : "Kegiatan"}
-                            </Badge>
-                          </h3>
-                          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                            {item.tbkelas?.name_kelas && (
-                              <div className="flex items-center gap-1">
-                                <BookOpen className="h-3.5 w-3.5" />
-                                <span>{item.tbkelas.name_kelas}</span>
-                              </div>
-                            )}
-                            {/* Jika mau menampilkan lokasi/ruangan, bisa ditambahkan di sini */}
+                          {/* Detail Kelas */}
+                          <div className="space-y-1">
+                            <h3 className="font-semibold text-base flex items-center gap-2">
+                              {item.nama_kegiatan}
+                              <Badge variant={item.id_kelas ? "default" : "secondary"} className="text-[10px] h-5">
+                                {item.id_kelas ? "Kelas" : "Kegiatan"}
+                              </Badge>
+                            </h3>
+                            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                              {item.tbkelas?.name_kelas && (
+                                <div className="flex items-center gap-1">
+                                  <BookOpen className="h-3.5 w-3.5" />
+                                  <span>{item.tbkelas.name_kelas}</span>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      {/* Tombol Aksi */}
-                      <Button asChild size="sm" className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700">
-                        <Link href={`/protected/teacher/absensi?kegiatan=${item.id_kegiatan}`}>
-                          Isi Absensi <ChevronRight className="ml-1 h-4 w-4" />
-                        </Link>
-                      </Button>
-                    </div>
-                  ))
+                        {/* TOMBOL AKSI SMART (Gembok/Edit) */}
+                        <div className="w-full sm:w-auto flex justify-end">
+                          <ActivityActionButton 
+                            id={item.id_kegiatan}
+                            isDone={isDone}
+                            requestStatus={item.request_edit_status || 'none'}
+                            isEditable={item.is_editable || false}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })
                 ) : (
                   <div className="text-center py-12 flex flex-col items-center justify-center text-muted-foreground bg-muted/10 rounded-lg border-2 border-dashed">
                     <CheckCircle2 className="h-10 w-10 mb-2 opacity-20" />
                     <p>Anda tidak memiliki jadwal hari ini.</p>
-                    <p className="text-xs">Nikmati hari libur Anda!</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                        Cek menu <Link href="/protected/teacher/absensi" className="underline text-blue-600">Riwayat</Link> untuk melihat jadwal lain.
+                    </p>
                   </div>
                 )}
               </div>
@@ -172,7 +188,7 @@ export default async function TeacherDashboardPage() {
           </Card>
         </div>
 
-        {/* --- RIGHT COLUMN (Profil & Upcoming) - Span 4 --- */}
+        {/* --- RIGHT COLUMN (Profil & Upcoming) --- */}
         <div className="md:col-span-4 space-y-6">
           
           {/* Profile Card */}
