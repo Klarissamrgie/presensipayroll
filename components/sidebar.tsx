@@ -70,7 +70,7 @@ const roleMenus: Record<string, MenuItem[]> = {
   teacher: [
     {
       title: "Dashboard",
-      href: "/protected/teacher/dashboard",
+      href: "/protected/teacher",
       icon: LayoutDashboard,
     },
     {

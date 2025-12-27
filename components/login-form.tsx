@@ -34,15 +34,46 @@ export function LoginForm({
     setError(null);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      // 1. Attempt Login
+      const { data, error: loginError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-      if (error) throw error;
-      // Update this route to redirect to an authenticated route. The user already has an active session.
-      router.push("/protected");
-    } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+
+      if (loginError) throw loginError;
+
+      // 2. Check User Role from Database
+      if (data.user) {
+        // Try to fetch the user's profile from 'tbteacher'
+        const { data: userProfile, error: profileError } = await supabase
+          .from("tbteacher")
+          .select("role")
+          .eq("id_teacher", data.user.id)
+          .single();
+
+        // --- LOGIC UPDATE: Handle Admin ---
+        // If profileError exists (e.g. "Row not found") or userProfile is null,
+        // it means this user is NOT in the 'tbteacher' table.
+        // According to your requirements, this means they are an ADMIN.
+        if (profileError || !userProfile) {
+            router.push("/protected/admin");
+            return;
+        }
+
+        // 3. Handle Teacher/Finance Roles
+        const role = userProfile.role?.toLowerCase()?.trim();
+
+        if (role === "finance") {
+            router.push("/protected/finance");
+        } else if (role === "teacher") {
+            router.push("/protected/teacher");
+        } else {
+            // Fallback: If they are in the table but role is unexpected, default to Admin or Home
+            router.push("/protected/admin");
+        }
+      }
+    } catch (error: any) {
+      setError(error.message || "An error occurred");
     } finally {
       setIsLoading(false);
     }
@@ -95,15 +126,6 @@ export function LoginForm({
                 {isLoading ? "Logging in..." : "Login"}
               </Button>
             </div>
-            {/* <div className="mt-4 text-center text-sm">
-              Don&apos;t have an account?{" "}
-              <Link
-                href="/auth/sign-up"
-                className="underline underline-offset-4"
-              >
-                Sign up
-              </Link>
-            </div> */}
           </form>
         </CardContent>
       </Card>

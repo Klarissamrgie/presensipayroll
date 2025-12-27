@@ -1,11 +1,13 @@
 import React from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Users, Clock, DollarSign, CalendarRange } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Users, Clock, DollarSign, CalendarRange, CheckCircle2, AlertCircle, Eye, Download } from 'lucide-react'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server' 
-// UBAH IMPORT DI BAWAH INI
 import StudentFilter from './student-filter' 
-import { StudentPagination } from './student-paggination' // <--- PAKAI KURUNG KURAWAL { }
+import { StudentPagination } from './student-paggination' 
+import { Button } from '@/components/ui/button'
+import Link from 'next/link'
+import { Badge } from '@/components/ui/badge'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,10 +19,9 @@ interface StudentData {
   jumlah: number
 }
 
+// Function to fetch student attendance & calculate payroll
 async function getStudentData(startDate: string, endDate: string) {
   const supabase = await createClient()
-
-  console.log("--- FETCHING DATA WITH FILTER:", { startDate, endDate }, "---")
 
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return null 
@@ -53,22 +54,22 @@ async function getStudentData(startDate: string, endDate: string) {
     return []
   }
 
-  // LOGIC FILTERING
+  // Logic: Calculate Fee based on Grade Rate * Frequency of Presence
   const formattedData: StudentData[] = data.map((student: any) => {
     const gradeName = student.tbgrade?.name_grade || 'No Grade'
     const hargaPerSesi = student.tbgrade?.harga_grade ? Number(student.tbgrade.harga_grade) : 0
     const rawAttendance = student.tb_attendance || []
     
-    // Filter Absensi
+    // Filter Attendance
     const listHadirGuruIni = rawAttendance.filter((absen: any) => {
-        // 1. Cek Status 'Hadir'
+        // 1. Check Status 'Hadir' (Present)
         const statusValid = absen.status && absen.status.trim().toLowerCase() === 'hadir';
         
-        // 2. Cek Guru (Milik saya?)
+        // 2. Check Teacher (Must be the current logged-in teacher)
         const teachersInClass = absen.tbkegiatan?.tb_activity_teachers || [];
         const isMyClass = teachersInClass.some((t: any) => t.teacher_id === currentTeacherId);
 
-        // 3. Cek Filter Tanggal
+        // 3. Check Date Filter
         let dateValid = true
         const activityDate = absen.tbkegiatan?.tgl_kegiatan
 
@@ -103,8 +104,13 @@ type Props = {
 
 const Student = async ({ searchParams }: Props) => {
   const params = await searchParams;
+  const supabase = await createClient()
+
+  // 0. Get Current User
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/auth/login')
   
-  // 1. Handle Filter Tanggal (Default Bulan Ini)
+  // 1. Handle Date Filter (Default to Current Month)
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString('en-CA');
   const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toLocaleDateString('en-CA');
@@ -112,17 +118,30 @@ const Student = async ({ searchParams }: Props) => {
   const startDate = params.startDate || startOfMonth;
   const endDate = params.endDate || endOfMonth;
 
-  // 2. Fetch Semua Data
+  // 2. Fetch All Student Data
   const allStudents = await getStudentData(startDate, endDate)
-
   if (allStudents === null) redirect('/auth/login')
+
+  // 3. Fetch Payment Status from Finance (tb_payments)
+  // We check if a payment record exists for this teacher in this period (startDate)
+  const { data: payment } = await supabase
+    .from('tb_payments')
+    .select('*')
+    .eq('teacher_id', user.id)
+    .eq('period', startDate) // Matches the 'period' string saved by Finance module
+    .single()
+
+  const isPaid = payment?.status === 'Paid'
+  const proofUrl = payment?.proof_file 
+    ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/finance/${payment.proof_file}`
+    : null
   
-  // 3. Hitung Summary (Total Keseluruhan sebelum dipotong page)
+  // 4. Calculate Summaries
   const activeStudents = allStudents.filter(s => s.frekuensi > 0).length
   const totalWorkHours = allStudents.reduce((sum, student) => sum + student.frekuensi, 0)
   const totalSalary = allStudents.reduce((sum, student) => sum + student.jumlah, 0)
 
-  // 4. Logic Pagination
+  // 5. Pagination Logic
   const currentPage = Number(params.page) || 1
   const ITEMS_PER_PAGE = 10 
   const totalData = allStudents.length
@@ -146,9 +165,42 @@ const Student = async ({ searchParams }: Props) => {
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold">My Student Payroll</h1>
         <p className="text-muted-foreground text-sm">
-            Laporan gaji berdasarkan absensi kelas yang Anda ajar.
+            View your class attendance and calculated payroll.
         </p>
       </div>
+
+      {/* --- PAYMENT STATUS ALERT --- */}
+      {isPaid ? (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
+          <div className="flex items-center gap-3 text-green-800">
+            <CheckCircle2 className="w-8 h-8 text-green-600" />
+            <div>
+              <h3 className="font-bold text-lg">Payment Received / Lunas</h3>
+              <p className="text-sm opacity-90">
+                Finance has transferred your salary for this period on {new Date(payment.paid_at).toLocaleDateString()}.
+              </p>
+            </div>
+          </div>
+          {proofUrl && (
+             <Button variant="outline" className="bg-white hover:bg-green-100 border-green-300 text-green-700" asChild>
+                <a href={proofUrl} target="_blank" rel="noopener noreferrer">
+                  <Eye className="w-4 h-4 mr-2" />
+                  View Proof of Transfer
+                </a>
+             </Button>
+          )}
+        </div>
+      ) : (
+         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-center gap-3 text-yellow-800 shadow-sm">
+            <AlertCircle className="w-5 h-5 text-yellow-600" />
+            <div>
+               <h3 className="font-semibold text-sm">Pending Payment</h3>
+               <p className="text-xs opacity-90">
+                 Finance has not yet uploaded proof of transfer for this period.
+               </p>
+            </div>
+         </div>
+      )}
 
       {/* --- FILTER COMPONENT --- */}
       <StudentFilter />
@@ -157,7 +209,7 @@ const Student = async ({ searchParams }: Props) => {
       <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 p-3 rounded-md border border-blue-200">
           <CalendarRange className="w-4 h-4" />
           <span>
-              Menampilkan data periode: <b>{startDate}</b> s/d <b>{endDate}</b>
+              Period: <b>{startDate}</b> to <b>{endDate}</b>
           </span>
       </div>
 
@@ -170,29 +222,29 @@ const Student = async ({ searchParams }: Props) => {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{activeStudents}</div>
-            <p className="text-xs text-red-100">Siswa hadir dalam periode ini</p>
+            <p className="text-xs text-red-100">Students present this month</p>
           </CardContent>
         </Card>
 
         <Card className='bg-[#8C84D9] text-white border-none shadow-md'>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-white/90">Sessions</CardTitle>
+            <CardTitle className="text-sm font-medium text-white/90">Total Sessions</CardTitle>
             <Clock className="h-4 w-4 text-white/90" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totalWorkHours}</div>
-            <p className="text-xs text-indigo-100">Total kehadiran sesi</p>
+            <p className="text-xs text-indigo-100">Total sessions taught</p>
           </CardContent>
         </Card>
 
         <Card className='bg-[#1D94AC] text-white border-none shadow-md'>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-white/90">Payroll</CardTitle>
+            <CardTitle className="text-sm font-medium text-white/90">Estimated Payroll</CardTitle>
             <DollarSign className="h-4 w-4 text-white/90" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatIDR(totalSalary)}</div>
-            <p className="text-xs text-cyan-100">Estimasi pendapatan periode ini</p>
+            <p className="text-xs text-cyan-100">Calculated based on grade rates</p>
           </CardContent>
         </Card>
       </div>
@@ -200,18 +252,26 @@ const Student = async ({ searchParams }: Props) => {
       {/* --- TABLE DETAILS --- */}
       <Card>
         <CardHeader>
-          <CardTitle>Rincian Per Siswa</CardTitle>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Payroll Detail per Student</CardTitle>
+              <CardDescription>Breakdown of fees based on attendance frequency.</CardDescription>
+            </div>
+            {isPaid && (
+              <Badge className="bg-green-600 hover:bg-green-700">Paid</Badge>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b bg-muted/20">
-                  <th className="text-left p-4 font-semibold text-muted-foreground">Nama Siswa</th>
+                  <th className="text-left p-4 font-semibold text-muted-foreground">Student Name</th>
                   <th className="text-left p-4 font-semibold text-muted-foreground">Grade</th>
-                  <th className="text-left p-4 font-semibold text-muted-foreground">Rate</th>
-                  <th className="text-center p-4 font-semibold text-muted-foreground">Frekuensi</th>
-                  <th className="text-right p-4 font-semibold text-muted-foreground">Total</th>
+                  <th className="text-left p-4 font-semibold text-muted-foreground">Rate (IDR)</th>
+                  <th className="text-center p-4 font-semibold text-muted-foreground">Frequency</th>
+                  <th className="text-right p-4 font-semibold text-muted-foreground">Total (IDR)</th>
                 </tr>
               </thead>
               <tbody>
@@ -232,7 +292,7 @@ const Student = async ({ searchParams }: Props) => {
                 ))}
                 
                 {paginatedStudents.length === 0 && (
-                   <tr><td colSpan={5} className="p-8 text-center text-muted-foreground">Data siswa tidak ditemukan</td></tr>
+                   <tr><td colSpan={5} className="p-8 text-center text-muted-foreground">No students found for this period</td></tr>
                 )}
               </tbody>
             </table>
