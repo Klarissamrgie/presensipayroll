@@ -63,7 +63,7 @@ const roleMenus: Record<string, MenuItem[]> = {
   finance: [
     {
       title: "Kelola Payroll",
-      href: "/protected/finance/kelola-payroll",
+      href: "/protected/finance",
       icon: DollarSign,
     },
   ],
