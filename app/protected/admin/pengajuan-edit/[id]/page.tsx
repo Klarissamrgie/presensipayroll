@@ -1,38 +1,38 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, use } from 'react' // Import 'use'
 import { useRouter } from 'next/navigation'
 import { saveAndLockActivity } from '@/app/protected/teacher/absensi/edit-workflow'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
 
-export default function EditActivityPage({ params }: { params: { id: string } }) {
+// Update Props Type to Promise
+export default function EditActivityPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter()
+  // Unwrap the params Promise
+  const { id } = use(params)
+  
   const [loading, setLoading] = useState(false)
   
-  // State untuk form (Contoh sederhana, sesuaikan dengan form Anda)
   const [formData, setFormData] = useState({
     catatan_kegiatan: '',
     jam_selesai: ''
   })
-
-  // (Disini harusnya ada useEffect untuk fetch data lama activity berdasarkan params.id)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
 
     try {
-      // PANGGIL SERVER ACTION "SAVE & LOCK"
-      await saveAndLockActivity(Number(params.id), {
+      // Use the unwrapped 'id' here
+      await saveAndLockActivity(Number(id), {
         catatan_kegiatan: formData.catatan_kegiatan,
         jam_selesai: formData.jam_selesai,
-        // field lain...
       })
 
       toast.success("Data berhasil disimpan & dikunci kembali.")
-      router.push('/protected/teacher/pengajuan-edit') // Redirect kembali ke list
+      router.push('/protected/teacher/pengajuan-edit') 
     } catch (error) {
       toast.error("Gagal menyimpan data.")
     } finally {
@@ -44,8 +44,6 @@ export default function EditActivityPage({ params }: { params: { id: string } })
     <div className="p-6 max-w-xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">Edit Kegiatan (One-Time)</h1>
       <form onSubmit={handleSubmit} className="space-y-4">
-        
-        {/* Input Contoh */}
         <div className="space-y-2">
           <label>Catatan Kegiatan</label>
           <Input 
