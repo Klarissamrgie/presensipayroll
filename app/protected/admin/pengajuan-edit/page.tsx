@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic'
 export default async function AdminRequestPage() {
   const supabase = await createClient()
 
-  // Ambil kegiatan yang status requestnya PENDING
+  // FIX: Ambil data guru melalui junction table 'tb_activity_teachers'
+  // karena relasi langsung 'tbteacher' di tbkegiatan mungkin kosong/tidak dipakai.
   const { data: requests, error } = await supabase
     .from('tbkegiatan')
     .select(`
@@ -20,7 +21,9 @@ export default async function AdminRequestPage() {
       tgl_kegiatan,
       jam_mulai,
       jam_selesai,
-      tbteacher ( nama )
+      tb_activity_teachers (
+        tbteacher ( nama )
+      )
     `)
     .eq('request_edit_status', 'pending')
     .order('tgl_kegiatan', { ascending: false })
@@ -41,41 +44,47 @@ export default async function AdminRequestPage() {
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {requests.map((req: any) => (
-            <Card key={req.id_kegiatan} className="shadow-sm hover:shadow-md transition-shadow">
-              <CardHeader className="pb-3">
-                <div className="flex justify-between items-start">
-                  <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
-                    Request Pending
-                  </Badge>
-                  <span className="text-xs text-slate-400">{req.tgl_kegiatan}</span>
-                </div>
-                <CardTitle className="text-lg mt-2">{req.nama_kegiatan}</CardTitle>
-                <p className="text-sm font-medium text-slate-600">Guru: {req.tbteacher?.nama}</p>
-              </CardHeader>
-              <CardContent>
-                <div className="text-sm text-slate-500 mb-6">
-                  Jam: {req.jam_mulai} - {req.jam_selesai}
-                </div>
-                
-                <div className="flex gap-3 w-full">
-                  {/* Form Action untuk Reject */}
-                  <form action={rejectEditRequest.bind(null, req.id_kegiatan)} className="flex-1">
-                    <Button variant="outline" className="w-full text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200">
-                      <X className="w-4 h-4 mr-2" /> Tolak
-                    </Button>
-                  </form>
+          {requests.map((req: any) => {
+            // Helper untuk mengambil nama guru dari array junction table
+            // Ambil guru pertama jika ada, atau fallback '-'
+            const teacherName = req.tb_activity_teachers?.[0]?.tbteacher?.nama || '-'
 
-                  {/* Form Action untuk Approve */}
-                  <form action={approveEditRequest.bind(null, req.id_kegiatan)} className="flex-1">
-                    <Button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white">
-                      <Check className="w-4 h-4 mr-2" /> Izinkan
-                    </Button>
-                  </form>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+            return (
+              <Card key={req.id_kegiatan} className="shadow-sm hover:shadow-md transition-shadow">
+                <CardHeader className="pb-3">
+                  <div className="flex justify-between items-start">
+                    <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                      Request Pending
+                    </Badge>
+                    <span className="text-xs text-slate-400">{req.tgl_kegiatan}</span>
+                  </div>
+                  <CardTitle className="text-lg mt-2">{req.nama_kegiatan}</CardTitle>
+                  <p className="text-sm font-medium text-slate-600">Guru: {teacherName}</p>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-sm text-slate-500 mb-6">
+                    Jam: {req.jam_mulai} - {req.jam_selesai}
+                  </div>
+                  
+                  <div className="flex gap-3 w-full">
+                    {/* Form Action untuk Reject */}
+                    <form action={rejectEditRequest.bind(null, req.id_kegiatan)} className="flex-1">
+                      <Button variant="outline" className="w-full text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200">
+                        <X className="w-4 h-4 mr-2" /> Tolak
+                      </Button>
+                    </form>
+
+                    {/* Form Action untuk Approve */}
+                    <form action={approveEditRequest.bind(null, req.id_kegiatan)} className="flex-1">
+                      <Button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white">
+                        <Check className="w-4 h-4 mr-2" /> Izinkan
+                      </Button>
+                    </form>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
         </div>
       )}
     </div>

@@ -131,7 +131,20 @@ export function Sidebar({ userEmail }: SidebarProps) {
         <nav className="flex flex-col gap-1 py-2">
           {menuItems.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+            
+            // 1. Check if the current path matches this item's href
+            const isMatch = pathname === item.href || pathname.startsWith(item.href + "/");
+
+            // 2. FIX: Check if there is a "more specific" (longer href) menu item that ALSO matches.
+            // If so, that item takes precedence, and this one should NOT be active.
+            // This prevents "Dashboard" (/protected/teacher) from being active when "Absensi" (/protected/teacher/absensi) is active.
+            const isOverridden = menuItems.some(otherItem => 
+               otherItem !== item && 
+               (pathname === otherItem.href || pathname.startsWith(otherItem.href + "/")) &&
+               otherItem.href.length > item.href.length
+            );
+            
+            const isActive = isMatch && !isOverridden;
             
             return (
               <Button
